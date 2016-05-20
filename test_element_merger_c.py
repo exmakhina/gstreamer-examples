@@ -7,22 +7,27 @@ if __name__ == '__main__':
 
 	cmd = [
 	 "gst-launch-1.0",
-	  "merger_py", "name=merge",
-	  "!", "video/x-raw,format=(string)RGBA,width=1280,height=480",
-	  "!", "autovideosink",
+	  "merger_c", "name=merge",
+	  "!", "capsfilter", "name=caps_post",
+	   "caps=video/x-raw,format=(string)RGBA,width=1280,height=480",
+	  "!",
+	   #"fakesink",
+	   "autovideosink",
 
 	  "videotestsrc", "name=cam_l",
-	   "num-buffers=100",
 	   "is-live=true",
+	   "num-buffers=1000",
 	   "!", "queue", "name=q_l",
-	   "!", "video/x-raw,format=(string)RGB,width=640,height=480",
+	   "!", "capsfilter", "name=caps_pre_l",
+	    "caps=video/x-raw,format=(string)RGB,width=640,height=480,framerate=30/1",
 	   "!", "merge.sink_l",
 
 	  "videotestsrc", "name=cam_r",
-	   "num-buffers=100",
 	   "is-live=true",
+	   "num-buffers=1000",
 	   "!", "queue", "name=q_r",
-	   "!", "video/x-raw,format=(string)RGB,width=640,height=480",
+	   "!", "capsfilter", "name=caps_pre_r",
+	    "caps=video/x-raw,format=(string)RGB,width=640,height=480,framerate=30/1",
 	   "!", "merge.sink_r",
 	]
 
@@ -44,7 +49,6 @@ if __name__ == '__main__':
 		shutil.rmtree(dotdir)
 
 	os.makedirs(dotdir)
-
 
 	print(" ".join(cmd))
 
