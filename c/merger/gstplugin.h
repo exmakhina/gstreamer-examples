@@ -34,6 +34,12 @@ struct _GstMerger
   GQueue bufs_r;
 
   GstSegment s_segment;
+
+  GstTask *task;
+  GMutex task_lock;
+  GCond task_cond;
+  GRecMutex task_mutex;
+  int stop;
 };
 
 struct _GstMergerClass

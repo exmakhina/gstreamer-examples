@@ -43,7 +43,7 @@ class Merger(Gst.Element):
 		 'sink_{l,r}',
 		 Gst.PadDirection.SINK,
 		 Gst.PadPresence.ALWAYS,
-		 Gst.caps_from_string('video/x-raw,format=(string)RGB'),
+		 Gst.caps_from_string('video/x-raw,format=(string)RGBA'),
 		)
 
 		Gst.Element.__init__(self)
@@ -75,7 +75,7 @@ class Merger(Gst.Element):
 				except IndexError:
 					return
 
-			Gst.info("Buffers L % 3d R % 3d" % (len(self._bufs_l), len(self._bufs_r)))
+			Gst.info("Buffers outstanding % 3d / % 3d" % (len(self._bufs_l), len(self._bufs_r)))
 
 			buf_l0 = popleft_or_none(self._bufs_l)
 			buf_l1 = popleft_or_none(self._bufs_l)
@@ -151,7 +151,7 @@ class Merger(Gst.Element):
 
 			Gst.debug("Pushing new buffer for t=%s" % Gst.TIME_ARGS(buf_l.pts))
 
-			srch, srcw = self._srch, self._srcw
+			srch, srcw, srcd = self._srch, self._srcw, self._srcd
 			dsth, dstw = self._dsth, self._dstw
 
 			tz = list()
@@ -164,23 +164,24 @@ class Merger(Gst.Element):
 			src0_d = mil.data
 			src1_d = mir.data
 
-			img_l = np.fromstring(src0_d, dtype=np.uint8).reshape((480, 640, 3))
-			img_r = np.fromstring(src1_d, dtype=np.uint8).reshape((480, 640, 3))
-			r, g, b = cv2.split(img_l)
-			a = np.ones_like(r) * 255
-			img_l = cv2.merge((r, g, b, a))
-			r, g, b = cv2.split(img_r)
-			img_r = cv2.merge((r, g, b, a))
-			v = np.hstack((img_l, img_r))# * (int(buf_l.pts / 1e8 )% 255)
+			img_l = np.fromstring(src0_d, dtype=np.uint8)[:srch*srcw*srcd].reshape((srch, srcw, srcd))
+			img_r = np.fromstring(src1_d, dtype=np.uint8)[:srch*srcw*srcd].reshape((srch, srcw, srcd))
+
+			buf_r.unmap(mir)
+			buf_l.unmap(mil)
+
+			v = np.hstack((img_l, img_r))
 
 			tz.append(time.time())
-			buf_out = Gst.Buffer.new_allocate(None, 1280*480*4, None)
+			buf_out = Gst.Buffer.new_allocate(None, dsth*dstw*4, None)
 			buf_out.dts = buf_l.dts
 			buf_out.pts = buf_l.pts
 			buf_out.duration = buf_l.duration
 			tz.append(time.time())
 
 			buf_out.fill(0, v.tobytes())
+
+			#time.sleep(0.01) # artificial computation time
 
 			#buf_out = Gst.Buffer.new_wrapped(v.data)#, 1280*480*4)
 
@@ -198,8 +199,6 @@ class Merger(Gst.Element):
 			Gst.debug("t_alloc %.3f  t_cp %.3f t_push %.3f" \
 			 % (tz[1] - tz[0], tz[2] - tz[1], tz[-1] - tz[-2]))
 		
-			buf_r.unmap(mir)
-			buf_l.unmap(mil)
 
 	def _sinkl_chain(self, pad, parent, buf_l):
 		"""
@@ -233,6 +232,7 @@ class Merger(Gst.Element):
 
 		self._srcw = caps[0]["width"]
 		self._srch = caps[0]["height"]
+		self._srcd = 4
 
 		if 1:
 			outcaps = Gst.Caps('%s' % othercaps)
@@ -241,7 +241,8 @@ class Merger(Gst.Element):
 			Gst.debug("outcasp 0 %s" % (out_s))
 			Gst.debug(" %s" % dir(out_s))
 
-			out_s.set_value("framerate", Gst.Fraction(30, 1))#caps[0]["framerate"])
+			fr = caps[0]["framerate"]
+			out_s.set_value("framerate", fr)
 
 			Gst.debug("out_s %s" % out_s.to_string())
 
@@ -267,14 +268,18 @@ class Merger(Gst.Element):
 	def _srcv_event(self, pad, parent, event):
 		Gst.debug("event %s" % event)
 		Gst.debug("event type %s" % event.type)
-		return self.sinklpad.push_event(event) and self.sinkrpad.push_event(event)
+		if event.type == Gst.EventType.QOS:
+			info = event.parse_qos()
+			Gst.info("QOS %s" % (str(info)))
+		else:
+			return self.sinklpad.push_event(event) and self.sinkrpad.push_event(event)
 
 	def _sinkl_event(self, pad, parent, event):
 		Gst.debug("event %s" % event)
 		Gst.debug("event type %s" % event.type)
 		if event.type == Gst.EventType.CAPS:
 			caps = event.parse_caps()
-			Gst.debug("event caps %s" % caps)
+			Gst.info("event caps %s" % caps)
 			return self.setcaps_srcv(parent, caps)
 		return self.srcvpad.push_event(event)
 
@@ -283,7 +288,7 @@ class Merger(Gst.Element):
 		Gst.debug("event type %s" % event.type)
 		if event.type == Gst.EventType.CAPS:
 			caps = event.parse_caps()
-			Gst.debug("event caps %s" % caps)
+			Gst.info("event caps %s" % caps)
 			return self.setcaps_srcv(parent, caps)
 
 		return self.srcvpad.push_event(event)
